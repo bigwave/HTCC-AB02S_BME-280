@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"name": "HTCC-AB02S Coverage",
+			"path": "..\\..\\PlatformIO\\Projects\\HTCC-AB02S Coverage"
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"*.tcc": "cpp",
+			"utility": "cpp"
+		}
+	}
+}
