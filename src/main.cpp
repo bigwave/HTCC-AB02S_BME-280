@@ -226,7 +226,7 @@ void displayOled(boolean loraTransmitting)
     str[index] = 0;
   }
   display.drawString(128, 10, str);
-  if (lastGpsFix.isValid())
+  if (lastGpsFix.isValid() && !loraTransmitting)
   {
     double distance = TinyGPSPlus::distanceBetween(lastGpsFix.lat(), lastGpsFix.lng(), Air530.location.lat(), Air530.location.lng());
     index = sprintf(str, "%dm", (int)distance);
@@ -413,11 +413,9 @@ void displayRgb()
   uint32_t greenLed = lastRssi;
 
   uint32_t blueLed = 0;
-  if (now() - lastLoRaWanAck == 1)
-  {
-    blueLed = 255;
-  }
-  pixels.setPixelColor(0, pixels.Color(redLed, 0, 0));
+  blueLed = buffer.size() * 5;
+
+  pixels.setPixelColor(0, pixels.Color(redLed, 0, blueLed));
   //pixels.setPixelColor(0, pixels.Color(redLed, greenLed, blueLed));
   pixels.show(); // Send the updated pixel colors to the hardware.
 }
@@ -425,6 +423,7 @@ void displayRgb()
 void transmitRecord()
 {
   lastLoRaWanHeartbeat = now();
+  time_t startTransmitting = now();
   if (buffer.isEmpty())
   {
     return;
@@ -432,24 +431,35 @@ void transmitRecord()
 
   Serial.print("Buffer size = ");
   Serial.println(buffer.size());
+  float currentLongitude = buffer.last().longitude;
+  float currentLatitude = buffer.last().latitude;
+  time_t currentTime = buffer.last().time;
 
   while (!buffer.isEmpty())
   {
+    displayOled(true);
     CayenneLPP lpp = prepareTxFrame(buffer.last());
+
     if (LoRaWAN.send(lpp.getSize(), lpp.getBuffer(), 2, true))
     {
       Serial.println("Send OK");
-      float currentLongitude = buffer.last().longitude;
-      float currentLatitude = buffer.last().latitude;
-      time_t currentTime = buffer.last().time;
-      buffer.pop();
-      while (buffer.first().transmissionTime != currentTime)
+
+      if (lastLoRaWanAck > startTransmitting)
       {
-        record aRecord = buffer.shift();
-        aRecord.transmissionLongitude = currentLongitude;
-        aRecord.transmissionLatitude = currentLatitude;
-        aRecord.transmissionTime = currentTime;
-        buffer.push(aRecord);
+        buffer.pop();
+        while (buffer.first().transmissionTime != currentTime)
+        {
+          record aRecord = buffer.shift();
+          aRecord.transmissionLongitude = currentLongitude;
+          aRecord.transmissionLatitude = currentLatitude;
+          aRecord.transmissionTime = currentTime;
+          buffer.push(aRecord);
+        }
+      }
+      else
+      {
+        // Didn't get an ACK
+        break;
       }
     }
 
@@ -466,19 +476,19 @@ void loop()
 {
 
   displayRgb();
-  if (LoRaWAN.busy())
-  {
-    displayOled(true);
-    TimerEvent_t pollStateTimer;
-    TimerInit(&pollStateTimer, wakeUpDummy);
-    TimerSetValue(&pollStateTimer, 100);
-    //Serial.println("LORAWAN BUSY");
-    TimerStart(&pollStateTimer);
-    lowPowerHandler();
-    TimerStop(&pollStateTimer);
-    Radio.IrqProcess();
-    return;
-  }
+  // if (LoRaWAN.busy())
+  // {
+  //   displayOled(true);
+  //   TimerEvent_t pollStateTimer;
+  //   TimerInit(&pollStateTimer, wakeUpDummy);
+  //   TimerSetValue(&pollStateTimer, 100);
+  //   //Serial.println("LORAWAN BUSY");
+  //   TimerStart(&pollStateTimer);
+  //   lowPowerHandler();
+  //   TimerStop(&pollStateTimer);
+  //   Radio.IrqProcess();
+  //   return;
+  // }
 
   uint32_t starttime = millis();
   while ((millis() - starttime) < 1000)
@@ -530,7 +540,7 @@ void loop()
 
   if (lastGpsFix.isValid() &&
       Air530.location.isValid() &&
-      TinyGPSPlus::distanceBetween(lastGpsFix.lat(), lastGpsFix.lng(), Air530.location.lat(), Air530.location.lng()) < 15)
+      TinyGPSPlus::distanceBetween(lastGpsFix.lat(), lastGpsFix.lng(), Air530.location.lat(), Air530.location.lng()) < 5)
   {
     // Serial.println("Not moved much");
     // Serial.printf("Last ACK: %02d:%02d:%02d", hour(lastLoRaWanAck), minute(lastLoRaWanAck), second(lastLoRaWanAck));
@@ -550,6 +560,8 @@ void loop()
     }
     else
     {
+      lastLoRaWanHeartbeat = now();
+      Serial.println();
       Serial.println();
       Serial.println("30 minutes since last ACK");
     }
@@ -557,7 +569,8 @@ void loop()
   else
   {
     Serial.println();
-    Serial.println("Moved more than 15 meters");
+    Serial.println();
+    Serial.println("Moved more than 5 meters");
   }
   display.clear();
   displayInfo();
