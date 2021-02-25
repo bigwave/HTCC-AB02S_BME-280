@@ -15,6 +15,21 @@
 #include "cubecell_SSD1306Wire.h"
 #include <TimeLib.h>
 #include "CubeCell_NeoPixel.h"
+#include "CayenneLPP.h"
+#include "Seeed_BME280.h"
+#include <CircularBuffer.h>
+
+#define delta_width 10
+#define delta_height 10
+static unsigned char delta_bits[] = {
+    0x30, 0xfc, 0x78, 0xfc, 0x68, 0xfc, 0xc4, 0xfc, 0xc4, 0xfc, 0x82, 0xfd,
+    0x82, 0xfd, 0x01, 0xff, 0x01, 0xff, 0xff, 0xff};
+
+#define SATELLITE_IMAGE_WIDTH 12
+#define SATELLITE_IMAGE_HEIGHT 12
+const uint8_t SATELLITE_IMAGE[] PROGMEM = {
+    0x00, 0xf2, 0x00, 0xf7, 0x90, 0xf3, 0x38, 0xf1, 0x7c, 0xf0, 0xf8, 0xf0,
+    0xf0, 0xf1, 0xe4, 0xf0, 0x4e, 0xfa, 0x07, 0xf9, 0x02, 0xf4, 0x00, 0xf3};
 
 CubeCell_NeoPixel pixels(1, RGB, NEO_GRB + NEO_KHZ800);
 
@@ -42,16 +57,39 @@ uint8_t appKey[] = {0xD2, 0x05, 0x9E, 0xDD, 0x99, 0x16, 0x92, 0xB9, 0x4D, 0x82, 
 uint16_t userChannelsMask[6] = {0x00FF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000};
 
 static uint32_t lastGpsAge = UINT32_MAX;
-static time_t lastGpsFix;
+static time_t lastGpsFixTime;
+static TinyGPSLocation lastGpsFix;
 static time_t lastLoRaWanAck;
+static time_t lastLoRaWanHeartbeat = 0;
 static uint8_t lastRssi;
+
+typedef struct
+{
+  time_t time;
+  float latitude;
+  float longitude;
+  float altitude;
+  float course;
+  float speed;
+  float hdop;
+  int satellites;
+  float temperature;
+  float humidity;
+  float pressure;
+  float batteryVoltage;
+  float transmissionLatitude;
+  float transmissionLongitude;
+  time_t transmissionTime;
+} record;
+
+CircularBuffer<record, 50> buffer;
 
 static uint16 redLed = 0;
 static uint16 greenLed = 0;
 static uint16 blueLed = 0;
 
 uint8_t appDataSize = 0;
-uint8_t appData[LORAWAN_APP_DATA_MAX_SIZE];
+//uint8_t appData[LORAWAN_APP_DATA_MAX_SIZE];
 
 ///////////////////////////////////////////////////
 //Some utilities for going into low power mode
@@ -88,7 +126,12 @@ void digitalClockDisplay()
 }
 int32_t fracPart(double val, int n)
 {
-  return (int32_t)((val - (int32_t)(val)) * pow(10, n));
+  int32_t interim = (int32_t)((val - (int32_t)(val)) * pow(10, n));
+  if (interim < 0)
+  {
+    interim = interim * -1;
+  }
+  return interim;
 }
 void displayInfo()
 {
@@ -134,20 +177,69 @@ void displayInfo()
   Serial.println();
 }
 
-void displayGPSInfo()
+void displayOled(boolean loraTransmitting)
 {
   char str[30];
 
-  // if ( Air530.location.age() < 1000 )
-  // {
-  //   display.drawString(120, 0, "A");
-  // }
-  // else
-  // {
-  //   display.drawString(120, 0, "V");
-  // }
+  int index = sprintf(str, "%02d-%02d-%02d", year(), day(), month());
+  str[index] = 0;
+  display.drawString(0, 0, str);
+  index = sprintf(str, "%02d:%02d:%02d", hour(), minute(), second());
+  str[index] = 0;
+  display.drawString(55, 0, str);
 
-  int index = sprintf(str, "alt: %d.%d", (int)Air530.altitude.meters(), fracPart(Air530.altitude.meters(), 2));
+  // Serial.print ("Raw voltage : ");
+  // Serial.println(getBatteryVoltage());
+  double batteryVoltage = getBatteryVoltage() / 1000.0;
+  // Serial.print ("double voltage : ");
+  // Serial.println(batteryVoltage);
+  // Serial.print ("fracPart(batteryVoltage, 1)  : ");
+  // Serial.println(fracPart(batteryVoltage, 1));
+  index = sprintf(str, "%d.%dV", (int)batteryVoltage, fracPart(batteryVoltage, 1));
+  str[index] = 0;
+  display.drawString(105, 30, str);
+
+  display.drawString(0, 10, "Last GPS:");
+  index = sprintf(str, "-%ds", now() - lastGpsFixTime);
+  str[index] = 0;
+  display.drawString(50, 10, str);
+
+  display.drawString(0, 20, "Last ACK:");
+  index = sprintf(str, "-%ds", now() - lastLoRaWanAck);
+  str[index] = 0;
+  display.drawString(50, 20, str);
+
+  display.drawString(0, 30, "Last RSSI:");
+  index = sprintf(str, "-%d dBm", lastRssi);
+  str[index] = 0;
+  display.drawString(50, 30, str);
+
+  display.setTextAlignment(TEXT_ALIGN_RIGHT);
+  if (loraTransmitting)
+  {
+    index = sprintf(str, "#%d Lora", buffer.size());
+    str[index] = 0;
+  }
+  else
+  {
+    index = sprintf(str, "#%d GPS", buffer.size());
+    str[index] = 0;
+  }
+  display.drawString(128, 10, str);
+  if (lastGpsFix.isValid())
+  {
+    double distance = TinyGPSPlus::distanceBetween(lastGpsFix.lat(), lastGpsFix.lng(), Air530.location.lat(), Air530.location.lng());
+    index = sprintf(str, "%dm", (int)distance);
+    str[index] = 0;
+    //Serial.println(str);
+    display.drawString(116, 20, str);
+    display.drawXbm(display.getWidth() - delta_width, 22, delta_width, delta_height, delta_bits);
+  }
+  display.drawString(display.getWidth() - SATELLITE_IMAGE_WIDTH - 4, 0, String(Air530.satellites.value()));
+  display.drawXbm(display.getWidth() - SATELLITE_IMAGE_WIDTH, 0, SATELLITE_IMAGE_WIDTH, SATELLITE_IMAGE_HEIGHT, SATELLITE_IMAGE);
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+
+  index = sprintf(str, "alt: %d.%d", (int)Air530.altitude.meters(), fracPart(Air530.altitude.meters(), 2));
   str[index] = 0;
   display.drawString(70, 42, str);
 
@@ -163,69 +255,13 @@ void displayGPSInfo()
   str[index] = 0;
   display.drawString(0, 54, str);
 
-  // index = sprintf(str, "speed: %d.%d km/h", (int)Air530.speed.kmph(), fracPart(Air530.speed.kmph(), 3));
-  // str[index] = 0;
-  // display.drawString(0, 48, str);
-  display.display();
-}
-void displayDateTime(boolean loraTransmitting)
-{
-  display.setColor(BLACK);
-  display.fillRect(0, 0, 128, 40);
-  display.setColor(WHITE);
-  char str[30];
-
-  int index = sprintf(str, "%02d-%02d-%02d", year(), day(), month());
-  str[index] = 0;
-  display.drawString(0, 0, str);
-  index = sprintf(str, "%02d:%02d:%02d", hour(), minute(), second());
-  str[index] = 0;
-  display.drawString(60, 0, str);
-
-  // Serial.print ("Raw voltage : ");
-  // Serial.println(getBatteryVoltage());
-  double batteryVoltage = getBatteryVoltage() / 1000.0;
-  // Serial.print ("double voltage : ");
-  // Serial.println(batteryVoltage);
-  // Serial.print ("fracPart(batteryVoltage, 1)  : ");
-  // Serial.println(fracPart(batteryVoltage, 1));
-  index = sprintf(str, "%d.%dV", (int)batteryVoltage, fracPart(batteryVoltage, 1));
-  str[index] = 0;
-  display.drawString(105, 0, str);
-
-  display.drawString(0, 10, "Last GPS:");
-  index = sprintf(str, "-%ds", now() - lastGpsFix);
-  str[index] = 0;
-  display.drawString(60, 10, str);
-
-  display.drawString(0, 20, "Last ACK:");
-  index = sprintf(str, "-%ds", now() - lastLoRaWanAck);
-  str[index] = 0;
-  display.drawString(60, 20, str);
-
-  display.drawString(0, 30, "Last RSSI:");
-  index = sprintf(str, "-%d dBm", lastRssi);
-  str[index] = 0;
-  display.drawString(60, 30, str);
-
-  display.setTextAlignment(TEXT_ALIGN_RIGHT);
-  if (loraTransmitting)
-  {
-    display.drawString(128, 10, "Lora");
-  }
-  else
-  {
-    display.drawString(128, 10, "GPS");
-  }
-  display.setTextAlignment(TEXT_ALIGN_LEFT);
-
   display.display();
 }
 
 static void lowPowerSleep(uint32_t sleeptime)
 {
-  displayDateTime(false);
-  displayInfo();
+  // displayDateTime(false);
+  // displayInfo();
   sleepTimerExpired = false;
   TimerInit(&sleepTimer, &wakeUp);
   TimerSetValue(&sleepTimer, sleeptime);
@@ -237,14 +273,18 @@ static void lowPowerSleep(uint32_t sleeptime)
   TimerStop(&sleepTimer);
 }
 
-
 void VextON(void)
 {
   pinMode(Vext, OUTPUT);
   digitalWrite(Vext, LOW);
 }
+void VextOFF(void) //Vext default OFF
+{
+  pinMode(Vext, OUTPUT);
+  digitalWrite(Vext, HIGH);
+}
 
-static void prepareTxFrame()
+static CayenneLPP prepareTxFrame(record data)
 {
   /*appData size is LoRaWan_APP_Custom_DATA_MAX_SIZE which is defined in "commissioning.h".
     appDataSize max value is LoRaWan_APP_Custom_DATA_MAX_SIZE.
@@ -253,54 +293,28 @@ static void prepareTxFrame()
     for example, if use REGION_CN470,
     the max value for different DR can be found in MaxPayloadOfDatarateCN470 refer to DataratesCN470 and BandwidthsCN470 in "RegionCN470.h".
   */
+  CayenneLPP lpp(LORAWAN_APP_DATA_MAX_SIZE); // or 160?
 
-  float lat, lon, alt, course, speed, hdop, sats;
+  lpp.reset();
+  lpp.addUnixTime(1, data.time);
+  lpp.addGPS(1, data.latitude, data.longitude, data.altitude);
+  lpp.addDirection(1, data.course);
+  lpp.addDistance(1, data.speed);
+  lpp.addGenericSensor(1, data.hdop);
+  lpp.addVoltage(1, data.batteryVoltage / 1000.0f);
 
-  lat = Air530.location.lat();
-  lon = Air530.location.lng();
-  alt = Air530.altitude.meters();
-  course = Air530.course.deg();
-  speed = Air530.speed.kmph();
-  sats = Air530.satellites.value();
-  hdop = Air530.hdop.hdop();
+  lpp.addTemperature(1, data.temperature);
+  lpp.addRelativeHumidity(1, data.humidity);
+  lpp.addBarometricPressure(1, data.pressure);
 
-  uint16_t batteryVoltage = getBatteryVoltage();
+  lpp.addGPS(2, data.transmissionLatitude, data.transmissionLongitude, data.altitude);
+  lpp.addUnixTime(2, data.transmissionTime);
 
-  unsigned char *puc;
+  Serial.print("lpp data size: ");
+  Serial.print(lpp.getSize());
+  Serial.println();
 
-  appDataSize = 0;
-  puc = (unsigned char *)(&lat);
-  appData[appDataSize++] = puc[0];
-  appData[appDataSize++] = puc[1];
-  appData[appDataSize++] = puc[2];
-  appData[appDataSize++] = puc[3];
-  puc = (unsigned char *)(&lon);
-  appData[appDataSize++] = puc[0];
-  appData[appDataSize++] = puc[1];
-  appData[appDataSize++] = puc[2];
-  appData[appDataSize++] = puc[3];
-  puc = (unsigned char *)(&alt);
-  appData[appDataSize++] = puc[0];
-  appData[appDataSize++] = puc[1];
-  appData[appDataSize++] = puc[2];
-  appData[appDataSize++] = puc[3];
-  puc = (unsigned char *)(&course);
-  appData[appDataSize++] = puc[0];
-  appData[appDataSize++] = puc[1];
-  appData[appDataSize++] = puc[2];
-  appData[appDataSize++] = puc[3];
-  puc = (unsigned char *)(&speed);
-  appData[appDataSize++] = puc[0];
-  appData[appDataSize++] = puc[1];
-  appData[appDataSize++] = puc[2];
-  appData[appDataSize++] = puc[3];
-  puc = (unsigned char *)(&hdop);
-  appData[appDataSize++] = puc[0];
-  appData[appDataSize++] = puc[1];
-  appData[appDataSize++] = puc[2];
-  appData[appDataSize++] = puc[3];
-  appData[appDataSize++] = (uint8_t)(batteryVoltage >> 8);
-  appData[appDataSize++] = (uint8_t)batteryVoltage;
+  return lpp;
 }
 
 ///////////////////////////////////////////////////
@@ -309,14 +323,10 @@ void setup()
   boardInitMcu();
   Serial.begin(115200);
   uint64_t chipID = getID();
-  Serial.printf("ChipID:%04X%08X\r\n", (uint32_t)(chipID >> 32), (uint32_t)chipID);
+  Serial.printf("ChipID: %08X%08X\r\n", (uint32_t)(chipID >> 32), (uint32_t)chipID);
 
   VextON();
-  delay(10);
-
-  pinMode(Vext, OUTPUT);
-  digitalWrite(Vext, LOW); //SET POWER
-  delay(1);
+  delay(500);     //delay to let power line settle
   pixels.begin(); // INITIALIZE RGB strip object (REQUIRED)
   pixels.clear(); // Set all pixel colors to 'off'
   pixels.setBrightness(4);
@@ -324,10 +334,10 @@ void setup()
   pixels.show(); // Send the updated pixel colors to the hardware.
 
   display.init();
+  display.setI2cAutoInit(true);
   display.clear();
   display.setBrightness(64);
   display.display();
-
   display.setTextAlignment(TEXT_ALIGN_LEFT);
   display.setFont(ArialMT_Plain_10);
   display.drawString(64, 32 - 16 / 2, "GPS initing...");
@@ -411,13 +421,54 @@ void displayRgb()
   //pixels.setPixelColor(0, pixels.Color(redLed, greenLed, blueLed));
   pixels.show(); // Send the updated pixel colors to the hardware.
 }
+
+void transmitRecord()
+{
+  lastLoRaWanHeartbeat = now();
+  if (buffer.isEmpty())
+  {
+    return;
+  }
+
+  Serial.print("Buffer size = ");
+  Serial.println(buffer.size());
+
+  while (!buffer.isEmpty())
+  {
+    CayenneLPP lpp = prepareTxFrame(buffer.last());
+    if (LoRaWAN.send(lpp.getSize(), lpp.getBuffer(), 2, true))
+    {
+      Serial.println("Send OK");
+      float currentLongitude = buffer.last().longitude;
+      float currentLatitude = buffer.last().latitude;
+      time_t currentTime = buffer.last().time;
+      buffer.pop();
+      while (buffer.first().transmissionTime != currentTime)
+      {
+        record aRecord = buffer.shift();
+        aRecord.transmissionLongitude = currentLongitude;
+        aRecord.transmissionLatitude = currentLatitude;
+        aRecord.transmissionTime = currentTime;
+        buffer.push(aRecord);
+      }
+    }
+
+    else
+    {
+      Serial.println("Send FAILED");
+      break;
+    }
+  }
+}
+
 ///////////////////////////////////////////////////
 void loop()
 {
-  displayDateTime(false);
+
   displayRgb();
   if (LoRaWAN.busy())
   {
+    displayOled(true);
     TimerEvent_t pollStateTimer;
     TimerInit(&pollStateTimer, wakeUpDummy);
     TimerSetValue(&pollStateTimer, 100);
@@ -428,6 +479,7 @@ void loop()
     Radio.IrqProcess();
     return;
   }
+
   uint32_t starttime = millis();
   while ((millis() - starttime) < 1000)
   {
@@ -437,12 +489,21 @@ void loop()
     }
   }
 
+  display.clear();
+  displayOled(false);
   if (!Air530.location.isValid())
   {
+    Serial.print("i");
     return;
   }
-  if (Air530.hdop.hdop() > 5)
+  if (Air530.hdop.hdop() > 1)
   {
+    Serial.print("h");
+    return;
+  }
+  if (Air530.hdop.hdop() <= 0)
+  {
+    Serial.print("h");
     return;
   }
   setTime(Air530.time.hour(),
@@ -457,52 +518,97 @@ void loop()
   // Serial.print("current  AGE: ");
   // Serial.println(currentAge);
 
-  if (currentAge < lastGpsAge)
+  lastGpsAge = Air530.location.age();
+  if (currentAge > lastGpsAge)
   {
-   lastGpsFix = now();
-    display.clear();
-    displayGPSInfo();
-    displayDateTime(true);
-    displayInfo();
-    prepareTxFrame();
-    if (LoRaWAN.send(appDataSize, appData, 2, true))
+    // GPS doesn't have a new 'fix'
+    Serial.print("a");
+    return;
+  }
+
+  lastGpsFixTime = now();
+
+  if (lastGpsFix.isValid() &&
+      Air530.location.isValid() &&
+      TinyGPSPlus::distanceBetween(lastGpsFix.lat(), lastGpsFix.lng(), Air530.location.lat(), Air530.location.lng()) < 15)
+  {
+    // Serial.println("Not moved much");
+    // Serial.printf("Last ACK: %02d:%02d:%02d", hour(lastLoRaWanAck), minute(lastLoRaWanAck), second(lastLoRaWanAck));
+    // Serial.println();
+    // Serial.printf("Now     : %02d:%02d:%02d", hour(), minute(), second());
+    // Serial.println();
+
+    time_t diff = now() - lastLoRaWanHeartbeat;
+    // Serial.printf("Diff    : %02d:%02d:%02d", hour(diff), minute(diff), second(diff));
+    // Serial.println();
+
+    if (minute(diff) < 30 && lastLoRaWanHeartbeat != 0)
     {
-      Serial.println("Send OK");
+      // Serial.println("Not moved much and have Ack'd recently, skip");
+      Serial.print(".");
+      return;
     }
     else
     {
-      Serial.println("Send FAILED");
+      Serial.println();
+      Serial.println("30 minutes since last ACK");
     }
-    displayDateTime(false);
-
-    lastGpsAge = Air530.location.age();
   }
-
-  DeviceClass_t lorawanClass = LORAWAN_CLASS;
-  if (lorawanClass == CLASS_A)
+  else
   {
-    Serial.println("lowPowerSleep");
-
-    lowPowerSleep(15000);
+    Serial.println();
+    Serial.println("Moved more than 15 meters");
   }
+  display.clear();
+  displayInfo();
+
+  record newData;
+  newData.time = now();
+  newData.latitude = Air530.location.lat();
+  newData.longitude = Air530.location.lng();
+  newData.altitude = Air530.altitude.meters();
+  newData.course = Air530.course.deg();
+  newData.speed = Air530.speed.kmph();
+  newData.satellites = Air530.satellites.value();
+  newData.hdop = Air530.hdop.hdop();
+  lastGpsFix = Air530.location;
+
+  newData.batteryVoltage = getBatteryVoltage();
+
+  newData.transmissionLatitude = newData.latitude;
+  newData.transmissionLongitude = newData.longitude;
+  newData.transmissionTime = newData.time;
+
+  BME280 bme280;
+  Wire.begin();
+  if (!bme280.init())
+  {
+    Serial.println("Device error!");
+  }
+  else
+  {
+    delay(100); // To let Sensor settle
+
+    newData.temperature = bme280.getTemperature();
+    newData.humidity = bme280.getHumidity();
+    newData.pressure = bme280.getPressure() / 100;
+  }
+  Wire.end();
+  VextOFF();
+  Serial.print("Temperature: ");
+  Serial.print(newData.temperature);
+  Serial.print(", Humidity: ");
+  Serial.print(newData.humidity);
+  Serial.print(" and Pressure: ");
+  Serial.print(newData.pressure);
+  Serial.println();
+
+  buffer.push(newData);
+  // newData.time = newData.time - 10000;
+  // buffer.push(newData);
+
+  transmitRecord();
 }
-
-//Counter is just some dummy data we send for the example
-//counter++;
-
-//In this demo we use a timer to go into low power mode to kill some time.
-//You might be collecting data or doing something more interesting instead.
-//
-
-//Now send the data. The parameters are "data size, data pointer, port, request ack"
-// Serial.printf("\nSending packet with counter=%d\n", counter);
-//Here we send confirmed packed (ACK requested) only for the first five (remember there is a fair use policy)
-// bool requestack=counter<5?true:false;
-// if (LoRaWAN.send(1, &counter, 1, requestack)) {
-//   Serial.println("Send OK");
-// } else {
-//   Serial.println("Send FAILED");
-// }
 
 ///////////////////////////////////////////////////
 //Example of handling downlink data
@@ -522,7 +628,14 @@ void myLoRaWanFCNCheck(bool ackReceived, uint8_t rssi)
   if (ackReceived)
   {
     lastLoRaWanAck = now();
+    lastRssi = rssi;
   }
-  lastRssi = rssi;
-}
 
+  DeviceClass_t lorawanClass = LORAWAN_CLASS;
+  if (lorawanClass == CLASS_A)
+  {
+    Serial.println("lowPowerSleep");
+
+    lowPowerSleep(15000);
+  }
+}
