@@ -512,6 +512,13 @@ void transmitRecord()
 void loop()
 {
 
+  if (getBatteryVoltage() < 2000)
+  {
+    // let the solar panel cahrge a bit more
+    Serial.print("s");
+        lowPowerSleep(1800000);
+
+  }
   displayRgb();
   // if (LoRaWAN.busy())
   // {
