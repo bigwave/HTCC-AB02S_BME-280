@@ -62,6 +62,7 @@ static TinyGPSLocation lastGpsFix;
 static time_t lastLoRaWanAck;
 static time_t lastLoRaWanHeartbeat = 0;
 static uint8_t lastRssi;
+static DeviceClass_t lorawanClass = LORAWAN_CLASS;
 
 typedef struct
 {
@@ -73,9 +74,9 @@ typedef struct
   float speed;
   float hdop;
   int satellites;
-  float temperature;
-  float humidity;
-  float pressure;
+  float temperature = 0;
+  float humidity = 0;
+  float pressure = 0;
   float batteryVoltage;
   float transmissionLatitude;
   float transmissionLongitude;
@@ -99,6 +100,9 @@ bool sleepTimerExpired;
 
 static void wakeUp()
 {
+  Serial.println();
+  Serial.println("Woke Up!!");
+  Serial.println();
   sleepTimerExpired = true;
 }
 void printDigits(int digits)
@@ -179,6 +183,7 @@ void displayInfo()
 
 void displayOled(boolean loraTransmitting)
 {
+  display.clear();
   char str[30];
 
   int index = sprintf(str, "%02d-%02d-%02d", year(), day(), month());
@@ -258,21 +263,6 @@ void displayOled(boolean loraTransmitting)
   display.display();
 }
 
-static void lowPowerSleep(uint32_t sleeptime)
-{
-  // displayDateTime(false);
-  // displayInfo();
-  sleepTimerExpired = false;
-  TimerInit(&sleepTimer, &wakeUp);
-  TimerSetValue(&sleepTimer, sleeptime);
-  TimerStart(&sleepTimer);
-  //Low power handler also gets interrupted by other timers
-  //So wait until our timer had expired
-  while (!sleepTimerExpired)
-    lowPowerHandler();
-  TimerStop(&sleepTimer);
-}
-
 void VextON(void)
 {
   pinMode(Vext, OUTPUT);
@@ -282,6 +272,47 @@ void VextOFF(void) //Vext default OFF
 {
   pinMode(Vext, OUTPUT);
   digitalWrite(Vext, HIGH);
+}
+
+static void lowPowerSleep(uint32_t sleeptime)
+{
+  Serial.flush();
+  display.clear();
+  display.display();
+  display.stop();
+  VextOFF(); //oled power off
+  // displayDateTime(false);
+  // displayInfo();
+  sleepTimerExpired = false;
+  TimerInit(&sleepTimer, &wakeUp);
+  TimerSetValue(&sleepTimer, sleeptime);
+  TimerStart(&sleepTimer);
+  //Low power handler also gets interrupted by other timers
+  //So wait until our timer had expired
+  while (!sleepTimerExpired)
+  {
+    Serial.println();
+    Serial.print("-");
+    lowPowerHandler();
+  }
+  TimerStop(&sleepTimer);
+  VextON(); // oled power on;
+  delay(10);
+  display.init();
+  display.clear();
+  display.display();
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+  display.setFont(ArialMT_Plain_10);
+
+  if (lorawanClass == CLASS_A)
+  {
+    if (!Air530.available())
+    {
+      Air530.begin();
+      Air530.setmode(MODE_GPS_GLONASS);
+      Air530.setPPS(3, 500);
+    }
+  }
 }
 
 static CayenneLPP prepareTxFrame(record data)
@@ -346,7 +377,6 @@ void setup()
   Air530.begin();
   Air530.setmode(MODE_GPS_GLONASS);
   Air530.setPPS(3, 500);
-
   if (ACTIVE_REGION == LORAMAC_REGION_AU915)
   {
     //TTN uses sub-band 2 in AU915
@@ -469,6 +499,13 @@ void transmitRecord()
       break;
     }
   }
+
+  if (lorawanClass == CLASS_A)
+  {
+    Serial.println("lowPowerSleep");
+    Air530.end();
+    lowPowerSleep(1800000);
+  }
 }
 
 ///////////////////////////////////////////////////
@@ -499,13 +536,18 @@ void loop()
     }
   }
 
-  display.clear();
   displayOled(false);
   if (!Air530.location.isValid())
   {
     Serial.print("i");
     return;
   }
+  setTime(Air530.time.hour(),
+          Air530.time.minute(),
+          Air530.time.second(),
+          Air530.date.day(),
+          Air530.date.month(),
+          Air530.date.year());
   if (Air530.hdop.hdop() > 1)
   {
     Serial.print("h");
@@ -516,12 +558,6 @@ void loop()
     Serial.print("h");
     return;
   }
-  setTime(Air530.time.hour(),
-          Air530.time.minute(),
-          Air530.time.second(),
-          Air530.date.day(),
-          Air530.date.month(),
-          Air530.date.year());
   uint32_t currentAge = Air530.location.age();
   // Serial.print("Previous AGE: ");
   // Serial.println(lastGpsAge);
@@ -572,7 +608,6 @@ void loop()
     Serial.println();
     Serial.println("Moved more than 5 meters");
   }
-  display.clear();
   displayInfo();
 
   record newData;
@@ -592,21 +627,26 @@ void loop()
   newData.transmissionLongitude = newData.longitude;
   newData.transmissionTime = newData.time;
 
-  BME280 bme280;
-  Wire.begin();
-  if (!bme280.init())
+  Wire.beginTransmission(0x76);
+  if (Wire.endTransmission() == 0)
   {
-    Serial.println("Device error!");
-  }
-  else
-  {
-    delay(100); // To let Sensor settle
 
-    newData.temperature = bme280.getTemperature();
-    newData.humidity = bme280.getHumidity();
-    newData.pressure = bme280.getPressure() / 100;
+    BME280 bme280;
+    Wire.begin();
+    if (!bme280.init())
+    {
+      Serial.println("Device error!");
+    }
+    else
+    {
+      delay(100); // To let Sensor settle
+
+      newData.temperature = bme280.getTemperature();
+      newData.humidity = bme280.getHumidity();
+      newData.pressure = bme280.getPressure() / 100;
+    }
+    Wire.end();
   }
-  Wire.end();
   VextOFF();
   Serial.print("Temperature: ");
   Serial.print(newData.temperature);
@@ -642,13 +682,5 @@ void myLoRaWanFCNCheck(bool ackReceived, uint8_t rssi)
   {
     lastLoRaWanAck = now();
     lastRssi = rssi;
-  }
-
-  DeviceClass_t lorawanClass = LORAWAN_CLASS;
-  if (lorawanClass == CLASS_A)
-  {
-    Serial.println("lowPowerSleep");
-
-    lowPowerSleep(15000);
   }
 }

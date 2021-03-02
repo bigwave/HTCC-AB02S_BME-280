@@ -29,7 +29,10 @@
 			"utility": "cpp",
 			"sstream": "cpp",
 			"streambuf": "cpp",
-			"*.tpp": "cpp"
+			"*.tpp": "cpp",
+			"deque": "cpp",
+			"vector": "cpp",
+			"limits": "cpp"
 		}
 	}
 }
