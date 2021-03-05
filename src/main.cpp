@@ -48,7 +48,7 @@ SSD1306Wire display(0x3c, 500000, I2C_NUM_0, GEOMETRY_128_64, GPIO10); // addr ,
  * RGB yellow means RxWindow2;
  * RGB green means received done;
  */
-
+#define INT_GPIO USER_KEY
 //Set these OTAA parameters to match your app/node in TTN
 /* OTAA para*/
 uint8_t appEui[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
@@ -101,9 +101,17 @@ bool sleepTimerExpired;
 static void wakeUp()
 {
   Serial.println();
-  Serial.println("Woke Up!!");
+  Serial.print("Woke Up!!");
+      delay(10);
+  if(digitalRead(INT_GPIO) == 0)
+  {
+	  Serial.print(" by GPIO.");
+  }
+  Serial.println();
   Serial.println();
   sleepTimerExpired = true;
+  detachInterrupt(INT_GPIO);
+
 }
 void printDigits(int digits)
 {
@@ -276,6 +284,7 @@ void VextOFF(void) //Vext default OFF
 
 static void lowPowerSleep(uint32_t sleeptime)
 {
+    attachInterrupt(INT_GPIO,wakeUp,RISING);
   Serial.flush();
   display.clear();
   display.display();
@@ -292,6 +301,7 @@ static void lowPowerSleep(uint32_t sleeptime)
   Serial.println();
   while (!sleepTimerExpired)
   {
+
     Serial.print("-");
     lowPowerHandler();
   }
@@ -356,6 +366,8 @@ void setup()
   Serial.begin(115200);
   uint64_t chipID = getID();
   Serial.printf("ChipID: %08X%08X\r\n", (uint32_t)(chipID >> 32), (uint32_t)chipID);
+
+  pinMode(INT_GPIO,INPUT);
 
   VextON();
   delay(500);     //delay to let power line settle
