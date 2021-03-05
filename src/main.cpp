@@ -289,13 +289,14 @@ static void lowPowerSleep(uint32_t sleeptime)
   TimerStart(&sleepTimer);
   //Low power handler also gets interrupted by other timers
   //So wait until our timer had expired
+  Serial.println();
   while (!sleepTimerExpired)
   {
-    Serial.println();
     Serial.print("-");
     lowPowerHandler();
   }
   TimerStop(&sleepTimer);
+  Serial.begin(115200);
   VextON(); // oled power on;
   delay(10);
   display.init();
@@ -504,7 +505,8 @@ void transmitRecord()
   {
     Serial.println("lowPowerSleep");
     Air530.end();
-    lowPowerSleep(1800000);
+    //lowPowerSleep(30000);
+    lowPowerSleep(1800000); //30 minutes
   }
 }
 
@@ -514,10 +516,9 @@ void loop()
 
   if (getBatteryVoltage() < 2000)
   {
-    // let the solar panel cahrge a bit more
-    Serial.print("s");
-        lowPowerSleep(1800000);
-
+    Serial.println("Let the solar panel charge a bit more");
+    Air530.end();
+    lowPowerSleep(1800000);
   }
   displayRgb();
   // if (LoRaWAN.busy())
