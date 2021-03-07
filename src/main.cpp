@@ -102,16 +102,15 @@ static void wakeUp()
 {
   Serial.println();
   Serial.print("Woke Up!!");
-      delay(10);
-  if(digitalRead(INT_GPIO) == 0)
+  delay(10);
+  if (digitalRead(INT_GPIO) == 0)
   {
-	  Serial.print(" by GPIO.");
+    Serial.print(" by GPIO.");
   }
   Serial.println();
   Serial.println();
   sleepTimerExpired = true;
   detachInterrupt(INT_GPIO);
-
 }
 void printDigits(int digits)
 {
@@ -284,7 +283,8 @@ void VextOFF(void) //Vext default OFF
 
 static void lowPowerSleep(uint32_t sleeptime)
 {
-    attachInterrupt(INT_GPIO,wakeUp,RISING);
+  Air530.end();
+  attachInterrupt(INT_GPIO, wakeUp, RISING);
   Serial.flush();
   display.clear();
   display.display();
@@ -301,7 +301,6 @@ static void lowPowerSleep(uint32_t sleeptime)
   Serial.println();
   while (!sleepTimerExpired)
   {
-
     Serial.print("-");
     lowPowerHandler();
   }
@@ -315,15 +314,9 @@ static void lowPowerSleep(uint32_t sleeptime)
   display.setTextAlignment(TEXT_ALIGN_LEFT);
   display.setFont(ArialMT_Plain_10);
 
-  if (lorawanClass == CLASS_A)
-  {
-    if (!Air530.available())
-    {
-      Air530.begin();
-      Air530.setmode(MODE_GPS_GLONASS);
-      Air530.setPPS(3, 500);
-    }
-  }
+  Air530.begin();
+  Air530.setmode(MODE_GPS_GLONASS);
+  Air530.setPPS(3, 500);
 }
 
 static CayenneLPP prepareTxFrame(record data)
@@ -342,7 +335,7 @@ static CayenneLPP prepareTxFrame(record data)
   lpp.addGPS(1, data.latitude, data.longitude, data.altitude);
   lpp.addDirection(1, data.course);
   lpp.addDistance(1, data.speed);
-  lpp.addGenericSensor(1, data.hdop);
+  lpp.addAnalogInput(1, data.hdop);
   lpp.addVoltage(1, data.batteryVoltage / 1000.0f);
 
   lpp.addTemperature(1, data.temperature);
@@ -367,7 +360,7 @@ void setup()
   uint64_t chipID = getID();
   Serial.printf("ChipID: %08X%08X\r\n", (uint32_t)(chipID >> 32), (uint32_t)chipID);
 
-  pinMode(INT_GPIO,INPUT);
+  pinMode(INT_GPIO, INPUT);
 
   VextON();
   delay(500);     //delay to let power line settle
@@ -430,7 +423,6 @@ void setup()
       display.drawString(0, 0, "LORAWAN JOINED...");
       display.display();
       Serial.println("JOINED");
-      lowPowerSleep(500);
       break;
     }
   }
@@ -516,7 +508,6 @@ void transmitRecord()
   if (lorawanClass == CLASS_A)
   {
     Serial.println("lowPowerSleep");
-    Air530.end();
     //lowPowerSleep(30000);
     lowPowerSleep(1800000); //30 minutes
   }
@@ -526,10 +517,9 @@ void transmitRecord()
 void loop()
 {
 
-  if (getBatteryVoltage() < 2000)
+  if (getBatteryVoltage() < 2500)
   {
     Serial.println("Let the solar panel charge a bit more");
-    Air530.end();
     lowPowerSleep(1800000);
   }
   displayRgb();
@@ -555,19 +545,22 @@ void loop()
       Air530.encode(Air530.read());
     }
   }
-
+  if (Air530.time.isValid())
+  {
+    setTime(Air530.time.hour(),
+            Air530.time.minute(),
+            Air530.time.second(),
+            Air530.date.day(),
+            Air530.date.month(),
+            Air530.date.year());
+  }
   displayOled(false);
   if (!Air530.location.isValid())
   {
     Serial.print("i");
     return;
   }
-  setTime(Air530.time.hour(),
-          Air530.time.minute(),
-          Air530.time.second(),
-          Air530.date.day(),
-          Air530.date.month(),
-          Air530.date.year());
+
   if (Air530.hdop.hdop() > 1)
   {
     Serial.print("h");
@@ -579,16 +572,12 @@ void loop()
     return;
   }
   uint32_t currentAge = Air530.location.age();
-  // Serial.print("Previous AGE: ");
-  // Serial.println(lastGpsAge);
-  // Serial.print("current  AGE: ");
-  // Serial.println(currentAge);
 
-  lastGpsAge = Air530.location.age();
-  if (currentAge > lastGpsAge)
+  if (currentAge >1500)
   {
     // GPS doesn't have a new 'fix'
     Serial.print("a");
+  Serial.print(currentAge);
     return;
   }
 
