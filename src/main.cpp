@@ -116,7 +116,6 @@ void displayVersionAndName()
 
   pixels.clear(); // Set all pixel colors to 'off'
   pixels.show(); // Send the updated pixel colors to the hardware.
-  delay(1000);
 
   display.clear();
 }
@@ -455,6 +454,9 @@ void setup()
       break;
     }
   }
+// stop displaying massive negative numbers
+  lastGpsFixTime = now(); 
+  lastLoRaWanAck = now();
 }
 //A 'do nothing' function for timer callbacks
 static void wakeUpDummy() {}
@@ -575,15 +577,6 @@ void loop()
       Air530.encode(Air530.read());
     }
   }
-  if (Air530.time.isValid())
-  {
-    setTime(Air530.time.hour(),
-            Air530.time.minute(),
-            Air530.time.second(),
-            Air530.date.day(),
-            Air530.date.month(),
-            Air530.date.year());
-  }
   displayOled(false);
   if (!Air530.location.isValid())
   {
@@ -609,6 +602,16 @@ void loop()
     Serial.print("a");
     Serial.print(currentAge);
     return;
+  }
+
+  if (Air530.time.isValid())
+  {
+    setTime(Air530.time.hour(),
+            Air530.time.minute(),
+            Air530.time.second(),
+            Air530.date.day(),
+            Air530.date.month(),
+            Air530.date.year());
   }
 
   lastGpsFixTime = now();
