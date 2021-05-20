@@ -18,6 +18,9 @@
 #include "CayenneLPP.h"
 #include "Seeed_BME280.h"
 #include <CircularBuffer.h>
+#include "chipIdNameLookup.cpp"
+#include "version.h"
+#include "font.h"
 
 #define delta_width 10
 #define delta_height 10
@@ -92,12 +95,36 @@ static uint16 blueLed = 0;
 uint8_t appDataSize = 0;
 //uint8_t appData[LORAWAN_APP_DATA_MAX_SIZE];
 
+void displayVersionAndName()
+{
+  display.setFont(ArialMT_Plain_16);
+  display.drawString(0, 0, chipIdNameLookup());
+  display.drawString(0, 18, String("FW ver: ") + VERSION);
+  display.setFont(Dialog_plain_8);
+  display.drawString(0, 36, BUILD_TIMESTAMP);
+  display.display();
+
+  pixels.setPixelColor(0, pixels.Color(1, 0, 0));
+  pixels.show(); // Send the updated pixel colors to the hardware.
+  delay(1000);
+  pixels.setPixelColor(0, pixels.Color(0, 1, 0));
+  pixels.show(); // Send the updated pixel colors to the hardware.
+  delay(1000);
+  pixels.setPixelColor(0, pixels.Color(0, 0, 1));
+  pixels.show(); // Send the updated pixel colors to the hardware.
+  delay(1000);
+
+  pixels.clear(); // Set all pixel colors to 'off'
+  pixels.show(); // Send the updated pixel colors to the hardware.
+  delay(1000);
+
+  display.clear();
+}
 ///////////////////////////////////////////////////
 //Some utilities for going into low power mode
 TimerEvent_t sleepTimer;
 //Records whether our sleep/low power timer expired
 bool sleepTimerExpired;
-
 static void wakeUp()
 {
   Serial.println();
@@ -312,6 +339,7 @@ static void lowPowerSleep(uint32_t sleeptime)
   display.clear();
   display.display();
   display.setTextAlignment(TEXT_ALIGN_LEFT);
+  displayVersionAndName();
   display.setFont(ArialMT_Plain_10);
 
   Air530.begin();
@@ -360,25 +388,26 @@ void setup()
   uint64_t chipID = getID();
   Serial.printf("ChipID: %08X%08X\r\n", (uint32_t)(chipID >> 32), (uint32_t)chipID);
 
-  pinMode(INT_GPIO, INPUT);
-
   VextON();
   delay(500);     //delay to let power line settle
-  pixels.begin(); // INITIALIZE RGB strip object (REQUIRED)
-  pixels.clear(); // Set all pixel colors to 'off'
-  pixels.setBrightness(4);
-  pixels.setPixelColor(0, pixels.Color(255, 0, 0));
-  pixels.show(); // Send the updated pixel colors to the hardware.
+  
 
+  pixels.begin(); // INITIALIZE RGB strip object (REQUIRED)
   display.init();
+   pixels.clear(); // Set all pixel colors to 'off'
+  pixels.show(); // Send the updated pixel colors to the hardware.
   display.setI2cAutoInit(true);
   display.clear();
   display.setBrightness(64);
   display.display();
   display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.setFont(ArialMT_Plain_10);
-  display.drawString(64, 32 - 16 / 2, "GPS initing...");
+
+  displayVersionAndName();
+
+ display.setFont(ArialMT_Plain_10);
+  display.drawString(0, 0, "GPS initing...");
   display.display();
+  pinMode(INT_GPIO, INPUT);
 
   Air530.begin();
   Air530.setmode(MODE_GPS_GLONASS);
@@ -449,6 +478,7 @@ void displayRgb()
 
   uint32_t blueLed = 0;
   blueLed = buffer.size() * 5;
+  pixels.begin(); // INITIALIZE RGB strip object (REQUIRED)
 
   pixels.setPixelColor(0, pixels.Color(redLed, 0, blueLed));
   //pixels.setPixelColor(0, pixels.Color(redLed, greenLed, blueLed));
@@ -573,11 +603,11 @@ void loop()
   }
   uint32_t currentAge = Air530.location.age();
 
-  if (currentAge >1500)
+  if (currentAge > 1500)
   {
     // GPS doesn't have a new 'fix'
     Serial.print("a");
-  Serial.print(currentAge);
+    Serial.print(currentAge);
     return;
   }
 
