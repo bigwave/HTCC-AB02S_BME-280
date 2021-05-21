@@ -315,6 +315,8 @@ static void lowPowerSleep(uint32_t sleeptime)
   display.clear();
   display.display();
   display.stop();
+  pixels.clear();
+  pixels.show();
   VextOFF(); //oled power off
   // displayDateTime(false);
   // displayInfo();
