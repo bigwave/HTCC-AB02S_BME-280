@@ -470,6 +470,10 @@ void displayRgb()
   {
     return;
   }
+  if (lorawanClass == CLASS_A) // don't use RGB for tracking, just coverage.
+  {
+    return;
+  }
 
   time_t test = now();
   uint32_t redLed = (test - lastLoRaWanAck) / 10;
