@@ -554,11 +554,18 @@ void transmitRecord()
 ///////////////////////////////////////////////////
 void loop()
 {
-
-  if (getBatteryVoltage() < 2500)
+  uint16_t voltage = getBatteryVoltage();
+  if (voltage < 2750)
   {
-    Serial.println("Let the solar panel charge a bit more");
-    lowPowerSleep(1800000);
+      char str[30];
+      double batteryVoltage = voltage / 1000.0;
+      int index = sprintf(str, "%d.%dV", (int)batteryVoltage, fracPart(batteryVoltage, 1));
+      str[index] = 0;
+      display.setFont(ArialMT_Plain_16);
+      display.drawString(0, 0, str);
+
+      Serial.println("Let the solar panel charge a bit more");
+      lowPowerSleep(1800000);
   }
   displayRgb();
   // if (LoRaWAN.busy())
