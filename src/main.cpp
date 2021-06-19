@@ -559,12 +559,16 @@ void loop()
   {
       char str[30];
       double batteryVoltage = voltage / 1000.0;
-      int index = sprintf(str, "%d.%dV", (int)batteryVoltage, fracPart(batteryVoltage, 1));
+      int index = sprintf(str, "%d.%dV", (int)batteryVoltage, fracPart(batteryVoltage, 2));
       str[index] = 0;
-      display.setFont(ArialMT_Plain_16);
+      display.clear();
+      display.setFont(ArialMT_Plain_24);
       display.drawString(0, 0, str);
+      display.display();
 
+      delay(5000);
       Serial.println("Let the solar panel charge a bit more");
+
       lowPowerSleep(1800000);
   }
   displayRgb();
