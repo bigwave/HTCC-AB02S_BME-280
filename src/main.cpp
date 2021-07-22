@@ -555,7 +555,7 @@ void transmitRecord()
 void loop()
 {
   uint16_t voltage = getBatteryVoltage();
-  if (voltage < 2750)
+  if (voltage < 3000)
   {
       char str[30];
       double batteryVoltage = voltage / 1000.0;
