@@ -552,11 +552,11 @@ void transmitRecord()
 
 void CheckVoltage()
 {
-    uint16_t voltage = getBatteryVoltage();
-  if (voltage < 3000)
+  double batteryVoltage = getBatteryVoltage() / 1000.0;
+  Serial.printf( "%d.%dV", (int)batteryVoltage, fracPart(batteryVoltage, 1));
+  if (batteryVoltage < 3)
   {
     char str[30];
-    double batteryVoltage = voltage / 1000.0;
     int index = sprintf(str, "%d.%dV", (int)batteryVoltage, fracPart(batteryVoltage, 2));
     str[index] = 0;
     display.clear();
@@ -590,18 +590,17 @@ void setup()
 
   displayVersionAndName();
   CheckVoltage();
-
-  if (!LoRaWAN.isJoined())
-  {
-    initialise();
-  }
- }
+}
 void loop()
 {
   if (voltageNeedsChecked)
   {
     CheckVoltage();
     voltageNeedsChecked = false;
+  }
+  if (!LoRaWAN.isJoined())
+  {
+    initialise();
   }
   displayRgb();
 
