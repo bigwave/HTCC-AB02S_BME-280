@@ -66,7 +66,7 @@ static time_t lastLoRaWanAck;
 static time_t lastLoRaWanHeartbeat = 0;
 static uint8_t lastRssi;
 static DeviceClass_t lorawanClass = LORAWAN_CLASS;
-
+static boolean voltageNeedsChecked = true;
 typedef struct
 {
   time_t time;
@@ -115,7 +115,7 @@ void displayVersionAndName()
   delay(1000);
 
   pixels.clear(); // Set all pixel colors to 'off'
-  pixels.show(); // Send the updated pixel colors to the hardware.
+  pixels.show();  // Send the updated pixel colors to the hardware.
 
   display.clear();
 }
@@ -346,6 +346,7 @@ static void lowPowerSleep(uint32_t sleeptime)
   Air530.begin();
   Air530.setmode(MODE_GPS_GLONASS);
   Air530.setPPS(3, 500);
+  voltageNeedsChecked = true;
 }
 
 static CayenneLPP prepareTxFrame(record data)
@@ -382,21 +383,18 @@ static CayenneLPP prepareTxFrame(record data)
 }
 
 ///////////////////////////////////////////////////
-void setup()
+void initialise()
 {
-  boardInitMcu();
-  Serial.begin(115200);
   uint64_t chipID = getID();
   Serial.printf("ChipID: %08X%08X\r\n", (uint32_t)(chipID >> 32), (uint32_t)chipID);
 
   VextON();
-  delay(500);     //delay to let power line settle
-  
+  delay(500); //delay to let power line settle
 
   pixels.begin(); // INITIALIZE RGB strip object (REQUIRED)
   display.init();
-   pixels.clear(); // Set all pixel colors to 'off'
-  pixels.show(); // Send the updated pixel colors to the hardware.
+  pixels.clear(); // Set all pixel colors to 'off'
+  pixels.show();  // Send the updated pixel colors to the hardware.
   display.setI2cAutoInit(true);
   display.clear();
   display.setBrightness(64);
@@ -405,7 +403,7 @@ void setup()
 
   displayVersionAndName();
 
- display.setFont(ArialMT_Plain_10);
+  display.setFont(ArialMT_Plain_10);
   display.drawString(0, 0, "GPS initing...");
   display.display();
   pinMode(INT_GPIO, INPUT);
@@ -456,10 +454,11 @@ void setup()
       break;
     }
   }
-// stop displaying massive negative numbers
-  lastGpsFixTime = now(); 
+  // stop displaying massive negative numbers
+  lastGpsFixTime = now();
   lastLoRaWanAck = now();
 }
+
 //A 'do nothing' function for timer callbacks
 static void wakeUpDummy() {}
 
@@ -551,27 +550,61 @@ void transmitRecord()
   }
 }
 
-///////////////////////////////////////////////////
-void loop()
+void CheckVoltage()
 {
-  uint16_t voltage = getBatteryVoltage();
+    uint16_t voltage = getBatteryVoltage();
   if (voltage < 3000)
   {
-      char str[30];
-      double batteryVoltage = voltage / 1000.0;
-      int index = sprintf(str, "%d.%dV", (int)batteryVoltage, fracPart(batteryVoltage, 2));
-      str[index] = 0;
-      display.clear();
-      display.setFont(ArialMT_Plain_24);
-      display.drawString(0, 0, str);
-      display.display();
+    char str[30];
+    double batteryVoltage = voltage / 1000.0;
+    int index = sprintf(str, "%d.%dV", (int)batteryVoltage, fracPart(batteryVoltage, 2));
+    str[index] = 0;
+    display.clear();
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(0, 0, str);
+    display.display();
 
-      delay(5000);
-      Serial.println("Let the solar panel charge a bit more");
+    delay(5000);
+    Serial.println("Let the solar panel charge a bit more");
 
-      lowPowerSleep(1800000);
+    lowPowerSleep(1800000);
+  }
+}
+///////////////////////////////////////////////////
+void setup()
+{
+  boardInitMcu();
+  Serial.begin(115200);
+  VextON();
+  delay(500); //delay to let power line settle
+
+  pixels.begin(); // INITIALIZE RGB strip object (REQUIRED)
+  display.init();
+  pixels.clear(); // Set all pixel colors to 'off'
+  pixels.show();  // Send the updated pixel colors to the hardware.
+  display.setI2cAutoInit(true);
+  display.clear();
+  display.setBrightness(64);
+  display.display();
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+
+  displayVersionAndName();
+  CheckVoltage();
+
+  if (!LoRaWAN.isJoined())
+  {
+    initialise();
+  }
+ }
+void loop()
+{
+  if (voltageNeedsChecked)
+  {
+    CheckVoltage();
+    voltageNeedsChecked = false;
   }
   displayRgb();
+
   // if (LoRaWAN.busy())
   // {
   //   displayOled(true);
