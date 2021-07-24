@@ -343,9 +343,6 @@ static void lowPowerSleep(uint32_t sleeptime)
   displayVersionAndName();
   display.setFont(ArialMT_Plain_10);
 
-  Air530.begin();
-  Air530.setmode(MODE_GPS_GLONASS);
-  Air530.setPPS(3, 500);
   voltageNeedsChecked = true;
 }
 
@@ -553,7 +550,7 @@ void transmitRecord()
 void CheckVoltage()
 {
   double batteryVoltage = getBatteryVoltage() / 1000.0;
-  Serial.printf( "%d.%dV", (int)batteryVoltage, fracPart(batteryVoltage, 1));
+  Serial.printf("%d.%dV", (int)batteryVoltage, fracPart(batteryVoltage, 1));
   if (batteryVoltage < 3)
   {
     char str[30];
@@ -597,6 +594,9 @@ void loop()
   {
     CheckVoltage();
     voltageNeedsChecked = false;
+    Air530.begin();
+    Air530.setmode(MODE_GPS_GLONASS);
+    Air530.setPPS(3, 500);
   }
   if (!LoRaWAN.isJoined())
   {
