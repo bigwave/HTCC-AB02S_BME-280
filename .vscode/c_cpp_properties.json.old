@@ -1,0 +1,55 @@
+//
+// !!! WARNING !!! AUTO-GENERATED FILE!
+// PLEASE DO NOT MODIFY IT AND USE "platformio.ini":
+// https://docs.platformio.org/page/projectconf/section_env_build.html#build-flags
+//
+{
+    "configurations": [
+        {
+            "name": "PlatformIO",
+            "includePath": [
+            ],
+            "browse": {
+                "limitSymbolsToIncludedHeaders": true,
+                "path": [
+                ]
+            },
+            "defines": [
+                "PLATFORMIO=50101",
+                "CubeCell_GPS",
+                "ARDUINO=10815",
+                "ARDUINO_ARCH_ASR650X",
+                "__ASR6502__",
+                "__asr650x__",
+                "CONFIG_MANUFACTURER=\"ASR\"",
+                "CONFIG_DEVICE_MODEL=\"asr6502\"",
+                "CONFIG_VERSION=\"v4.0\"",
+                "CY_CORE_ID=0",
+                "CONFIG_LORA_USE_TCXO",
+                "F_CPU=48000000L",
+                "SOFT_SE",
+                "REGION_EU868",
+                "ACTIVE_REGION=LORAMAC_REGION_EU868",
+                "LORAWAN_CLASS=CLASS_A",
+                "LORAWAN_NETMODE=true",
+                "LORAWAN_ADR=true",
+                "LORAWAN_UPLINKMODE=true",
+                "LORAWAN_NET_RESERVE=false",
+                "AT_SUPPORT=0",
+                "LORAWAN_DEVEUI_AUTO=0",
+                "LoraWan_RGB=0",
+                "LoRaWAN_DEBUG_LEVEL=2",
+                ""
+            ],
+            "compilerPath": "C:/Users/ian/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc.exe",
+            "compilerArgs": [
+                "-mcpu=cortex-m0plus",
+                "-mthumb",
+                "-mthumb-interwork",
+                "-mapcs-frame",
+                ""
+            ]
+        }
+    ],
+    "version": 4
+}

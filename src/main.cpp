@@ -8,11 +8,11 @@
  * David Brodrick.
  */
 #include "LoRaWanMinimal_APP.h"
-#include "loramac/system/timeServer.h"
+#include "lora/system/timeServer.h"
 #include "Arduino.h"
 #include "GPS_Air530.h"
 #include <Wire.h>
-#include "cubecell_SSD1306Wire.h"
+#include "HT_SSD1306Wire.h"
 #include <TimeLib.h>
 #include "CubeCell_NeoPixel.h"
 #include "CayenneLPP.h"
@@ -21,6 +21,49 @@
 #include "chipIdNameLookup.cpp"
 #include "version.h"
 #include "font.h"
+
+#define ANSI_ESCAPE_SEQUENCE(c) "\33[" c
+#define ESC_RESET ANSI_ESCAPE_SEQUENCE("0m")
+#define ESC_BOLD_ON ANSI_ESCAPE_SEQUENCE("1m")
+#define ESC_ITALICS_ON ANSI_ESCAPE_SEQUENCE("3m")
+#define ESC_UNDERLINE_ON ANSI_ESCAPE_SEQUENCE("4m")
+#define ESC_INVERSE_ON ANSI_ESCAPE_SEQUENCE("7m")
+#define ESC_STRIKETHROUGH_ON ANSI_ESCAPE_SEQUENCE("9m")
+#define ESC_BOLD_OFF ANSI_ESCAPE_SEQUENCE("22m")
+#define ESC_ITALICS_OFF ANSI_ESCAPE_SEQUENCE("23m")
+#define ESC_UNDERLINE_OFF ANSI_ESCAPE_SEQUENCE("24m")
+#define ESC_INVERSE_OFF ANSI_ESCAPE_SEQUENCE("27m")
+#define ESC_STRIKETHROUGH_OFF ANSI_ESCAPE_SEQUENCE("29m")
+#define ESC_FG_BLACK ANSI_ESCAPE_SEQUENCE("30m")
+#define ESC_FG_RED ANSI_ESCAPE_SEQUENCE("31m")
+#define ESC_FG_GREEN ANSI_ESCAPE_SEQUENCE("32m")
+#define ESC_FG_YELLOW ANSI_ESCAPE_SEQUENCE("33m")
+#define ESC_FG_BLUE ANSI_ESCAPE_SEQUENCE("34m")
+#define ESC_FG_MAGENTA ANSI_ESCAPE_SEQUENCE("35m")
+#define ESC_FG_CYAN ANSI_ESCAPE_SEQUENCE("36m")
+#define ESC_FG_WHITE ANSI_ESCAPE_SEQUENCE("37m")
+#define ESC_FG_DEFAULT ANSI_ESCAPE_SEQUENCE("39m")
+#define ESC_BG_BLACK ANSI_ESCAPE_SEQUENCE("40m")
+#define ESC_BG_RED ANSI_ESCAPE_SEQUENCE("41m")
+#define ESC_BG_GREEN ANSI_ESCAPE_SEQUENCE("42m")
+#define ESC_BG_YELLOW ANSI_ESCAPE_SEQUENCE("43m")
+#define ESC_BG_BLUE ANSI_ESCAPE_SEQUENCE("44m")
+#define ESC_BG_MAGENTA ANSI_ESCAPE_SEQUENCE("45m")
+#define ESC_BG_CYAN ANSI_ESCAPE_SEQUENCE("46m")
+#define ESC_BG_WHITE ANSI_ESCAPE_SEQUENCE("47m")
+#define ESC_BG_DEFAULT ANSI_ESCAPE_SEQUENCE("49m")
+#define ESC_CURSOR_POS(L, C) ANSI_ESCAPE_SEQUENCE(#L ";" #C "H")
+#define ESC_CURSOR_UP(L) ANSI_ESCAPE_SEQUENCE(#L "A")
+#define ESC_CURSOR_DOWN(L) ANSI_ESCAPE_SEQUENCE(#L "B")
+#define ESC_CURSOR_FORWARD(C) ANSI_ESCAPE_SEQUENCE(#C "C")
+#define ESC_CURSOR_BACKWARD(C) ANSI_ESCAPE_SEQUENCE(#C "D")
+#define ESC_CURSOR_POS_SAVE ANSI_ESCAPE_SEQUENCE("s")
+#define ESC_CURSOR_POS_RESTORE ANSI_ESCAPE_SEQUENCE("u")
+#define ESC_ERASE_DISPLAY ANSI_ESCAPE_SEQUENCE("2J")
+#define ESC_ERASE_LINE ANSI_ESCAPE_SEQUENCE("K")
+
+#define ESC_CURSOR_OFF ANSI_ESCAPE_SEQUENCE("?25l")
+#define ESC_CURSOR_ON ANSI_ESCAPE_SEQUENCE("?25h")
 
 #define delta_width 10
 #define delta_height 10
@@ -36,7 +79,9 @@ const uint8_t SATELLITE_IMAGE[] PROGMEM = {
 
 CubeCell_NeoPixel pixels(1, RGB, NEO_GRB + NEO_KHZ800);
 
-SSD1306Wire display(0x3c, 500000, I2C_NUM_0, GEOMETRY_128_64, GPIO10); // addr , freq , i2c group , resolution , rst
+//SSD1306Wire display(0x3c, 500000, I2C_NUM_0, GEOMETRY_128_64, GPIO10); // addr , freq , i2c group , resolution , rst
+SSD1306Wire display(0x3c, 500000, SDA, SCL, GEOMETRY_128_64, GPIO10); // addr , freq , SDA, SCL, resolution , rst
+Air530Class Air530;
 
 //when gps waked, if in GPS_UPDATE_TIMEOUT, gps not fixed then into low power mode
 #define GPS_UPDATE_TIMEOUT 120000
@@ -58,15 +103,14 @@ uint8_t appEui[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 uint8_t appKey[] = {0xD2, 0x05, 0x9E, 0xDD, 0x99, 0x16, 0x92, 0xB9, 0x4D, 0x82, 0x62, 0xC1, 0xC9, 0x28, 0xA0, 0xC9};
 
 uint16_t userChannelsMask[6] = {0x00FF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000};
-
+int serialPos = 0;
 static uint32_t lastGpsAge = UINT32_MAX;
-static time_t lastGpsFixTime;
+static time_t lastGpsFixTime = 0;
 static TinyGPSLocation lastGpsFix;
-static time_t lastLoRaWanAck;
+static time_t lastLoRaWanAck = 0;
 static time_t lastLoRaWanHeartbeat = 0;
 static uint8_t lastRssi;
 static DeviceClass_t lorawanClass = LORAWAN_CLASS;
-static boolean voltageNeedsChecked = true;
 typedef struct
 {
   time_t time;
@@ -95,6 +139,17 @@ static uint16 blueLed = 0;
 uint8_t appDataSize = 0;
 //uint8_t appData[LORAWAN_APP_DATA_MAX_SIZE];
 
+enum eDeviceState
+{
+  DEVICE_STATE_INIT,
+  DEVICE_STATE_JOIN,
+  DEVICE_STATE_SEND,
+  DEVICE_STATE_CYCLE,
+  DEVICE_STATE_SLEEP
+};
+
+enum eDeviceState deviceState;
+
 void displayVersionAndName()
 {
   display.setFont(ArialMT_Plain_16);
@@ -106,13 +161,13 @@ void displayVersionAndName()
 
   pixels.setPixelColor(0, pixels.Color(1, 0, 0));
   pixels.show(); // Send the updated pixel colors to the hardware.
-  delay(1000);
+  delay(500);
   pixels.setPixelColor(0, pixels.Color(0, 1, 0));
   pixels.show(); // Send the updated pixel colors to the hardware.
-  delay(1000);
+  delay(500);
   pixels.setPixelColor(0, pixels.Color(0, 0, 1));
   pixels.show(); // Send the updated pixel colors to the hardware.
-  delay(1000);
+  delay(500);
 
   pixels.clear(); // Set all pixel colors to 'off'
   pixels.show();  // Send the updated pixel colors to the hardware.
@@ -238,14 +293,20 @@ void displayOled(boolean loraTransmitting)
   display.drawString(105, 30, str);
 
   display.drawString(0, 10, "Last GPS:");
-  index = sprintf(str, "-%ds", now() - lastGpsFixTime);
-  str[index] = 0;
-  display.drawString(50, 10, str);
+  if (lastGpsFixTime > 0)
+  {
+    index = sprintf(str, "-%ds", now() - lastGpsFixTime);
+    str[index] = 0;
+    display.drawString(50, 10, str);
+  }
 
   display.drawString(0, 20, "Last ACK:");
-  index = sprintf(str, "-%ds", now() - lastLoRaWanAck);
-  str[index] = 0;
-  display.drawString(50, 20, str);
+  if (lastGpsFixTime > 0)
+  {
+    index = sprintf(str, "-%ds", now() - lastLoRaWanAck);
+    str[index] = 0;
+    display.drawString(50, 20, str);
+  }
 
   display.drawString(0, 30, "Last RSSI:");
   index = sprintf(str, "-%d dBm", lastRssi);
@@ -306,12 +367,27 @@ void VextOFF(void) //Vext default OFF
   pinMode(Vext, OUTPUT);
   digitalWrite(Vext, HIGH);
 }
+void turnOnDisplay()
+{
+  VextON(); // oled power on;
+  delay(500);
+  display.init();
+  display.setI2cAutoInit(true);
+  display.clear();
+  display.display();
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+  display.setBrightness(64);
+  pixels.begin(); // INITIALIZE RGB strip object (REQUIRED)
+  pixels.clear(); // Set all pixel colors to 'off'
+  pixels.show();  // Send the updated pixel colors to the hardware.
+  displayVersionAndName();
+  display.setFont(ArialMT_Plain_10);
+}
 
 static void lowPowerSleep(uint32_t sleeptime)
 {
   Air530.end();
   attachInterrupt(INT_GPIO, wakeUp, RISING);
-  Serial.flush();
   display.clear();
   display.display();
   display.stop();
@@ -327,23 +403,17 @@ static void lowPowerSleep(uint32_t sleeptime)
   //Low power handler also gets interrupted by other timers
   //So wait until our timer had expired
   Serial.println();
+  Serial.flush();
+  Serial.end();
   while (!sleepTimerExpired)
   {
-    Serial.print("-");
+    //Serial.print("-");
     lowPowerHandler();
   }
   TimerStop(&sleepTimer);
   Serial.begin(115200);
-  VextON(); // oled power on;
-  delay(10);
-  display.init();
-  display.clear();
-  display.display();
-  display.setTextAlignment(TEXT_ALIGN_LEFT);
-  displayVersionAndName();
-  display.setFont(ArialMT_Plain_10);
 
-  voltageNeedsChecked = true;
+  turnOnDisplay();
 }
 
 static CayenneLPP prepareTxFrame(record data)
@@ -380,34 +450,9 @@ static CayenneLPP prepareTxFrame(record data)
 }
 
 ///////////////////////////////////////////////////
-void initialise()
+void join()
 {
-  uint64_t chipID = getID();
-  Serial.printf("ChipID: %08X%08X\r\n", (uint32_t)(chipID >> 32), (uint32_t)chipID);
-
-  VextON();
-  delay(500); //delay to let power line settle
-
-  pixels.begin(); // INITIALIZE RGB strip object (REQUIRED)
-  display.init();
-  pixels.clear(); // Set all pixel colors to 'off'
-  pixels.show();  // Send the updated pixel colors to the hardware.
-  display.setI2cAutoInit(true);
-  display.clear();
-  display.setBrightness(64);
-  display.display();
-  display.setTextAlignment(TEXT_ALIGN_LEFT);
-
-  displayVersionAndName();
-
-  display.setFont(ArialMT_Plain_10);
-  display.drawString(0, 0, "GPS initing...");
-  display.display();
-  pinMode(INT_GPIO, INPUT);
-
-  Air530.begin();
-  Air530.setmode(MODE_GPS_GLONASS);
-  Air530.setPPS(3, 500);
+  turnOnDisplay();
   if (ACTIVE_REGION == LORAMAC_REGION_AU915)
   {
     //TTN uses sub-band 2 in AU915
@@ -437,8 +482,8 @@ void initialise()
 
       display.drawString(0, 0, "LORAWAN JOIN FAILED! Sleeping for 30 seconds...");
       display.display();
-      Serial.println("JOIN FAILED! Sleeping for 30 seconds");
-      lowPowerSleep(30000);
+      Serial.println("JOIN FAILED! Sleeping for 30 minutes");
+      lowPowerSleep(1800000);
     }
     else
     {
@@ -451,9 +496,6 @@ void initialise()
       break;
     }
   }
-  // stop displaying massive negative numbers
-  lastGpsFixTime = now();
-  lastLoRaWanAck = now();
 }
 
 //A 'do nothing' function for timer callbacks
@@ -547,10 +589,14 @@ void transmitRecord()
   }
 }
 
-void CheckVoltage()
+boolean CheckVoltage()
 {
   double batteryVoltage = getBatteryVoltage() / 1000.0;
-  Serial.printf("%d.%dV", (int)batteryVoltage, fracPart(batteryVoltage, 1));
+  Serial.print(ESC_FG_RED);
+  Serial.print("\r");
+  Serial.printf("%d.%dV ", (int)batteryVoltage, fracPart(batteryVoltage, 2));
+  Serial.print(ESC_FG_DEFAULT);
+
   if (batteryVoltage < 3)
   {
     char str[30];
@@ -561,46 +607,64 @@ void CheckVoltage()
     display.drawString(0, 0, str);
     display.display();
 
-    delay(5000);
+    delay(1000);
     Serial.println("Let the solar panel charge a bit more");
 
-    lowPowerSleep(1800000);
+    lowPowerSleep(7200000); // 2 hours
+    return false;
   }
+  return true;
 }
 ///////////////////////////////////////////////////
 void setup()
 {
   boardInitMcu();
   Serial.begin(115200);
-  VextON();
-  delay(500); //delay to let power line settle
+  pinMode(INT_GPIO, INPUT);
 
-  pixels.begin(); // INITIALIZE RGB strip object (REQUIRED)
-  display.init();
-  pixels.clear(); // Set all pixel colors to 'off'
-  pixels.show();  // Send the updated pixel colors to the hardware.
-  display.setI2cAutoInit(true);
-  display.clear();
-  display.setBrightness(64);
-  display.display();
-  display.setTextAlignment(TEXT_ALIGN_LEFT);
-
-  displayVersionAndName();
+  turnOnDisplay();
   CheckVoltage();
+	pinMode(GPIO14,OUTPUT);
+	digitalWrite(GPIO14, HIGH);
 }
+
+
 void loop()
 {
-  if (voltageNeedsChecked)
+  if (!CheckVoltage())
   {
-    CheckVoltage();
-    voltageNeedsChecked = false;
-    Air530.begin();
-    Air530.setmode(MODE_GPS_GLONASS);
-    Air530.setPPS(3, 500);
+    return;
+  }
+  switch (deviceState)
+  {
+  case DEVICE_STATE_INIT:
+  {
+  }
   }
   if (!LoRaWAN.isJoined())
   {
-    initialise();
+    join();
+    delay(1000);
+    display.clear();
+    display.display();
+    display.setFont(ArialMT_Plain_10);
+    display.drawString(0, 0, "GPS initing...");
+    display.display();
+  }
+int gpsState =digitalRead(GPIO14);
+// Serial.print("GPS pin state :");
+// Serial.println(gpsState);
+  if (gpsState == PINLEVEL::HIGH)
+  {
+
+    Air530.begin();
+    Air530.setmode(MODE_GPS_GLONASS);
+    Air530.setPPS(3, 500);
+    display.clear();
+    display.display();
+    display.drawString(0, 0, "GPS initialised");
+    display.display();
+    delay(1000);
   }
   displayRgb();
 
@@ -617,6 +681,14 @@ void loop()
   //   Radio.IrqProcess();
   //   return;
   // }
+  serialPos++;
+  if (serialPos > 50)
+  {
+    serialPos = 0;
+  }
+  char str[12];
+  sprintf(str, "\33[%dC", serialPos);
+  Serial.print(str);
 
   uint32_t starttime = millis();
   while ((millis() - starttime) < 1000)
@@ -626,21 +698,35 @@ void loop()
       Air530.encode(Air530.read());
     }
   }
+  if (Air530.time.isValid())
+  {
+    setTime(Air530.time.hour(),
+            Air530.time.minute(),
+            Air530.time.second(),
+            Air530.date.day(),
+            Air530.date.month(),
+            Air530.date.year());
+    if (lastGpsFixTime == 0)
+    { // stop displaying massive negative numbers
+      lastGpsFixTime = now();
+      lastLoRaWanAck = now();
+    }
+  }
   displayOled(false);
   if (!Air530.location.isValid())
   {
-    Serial.print("i");
+    Serial.print("i ");
     return;
   }
 
-  if (Air530.hdop.hdop() > 1)
+  if (Air530.hdop.hdop() > 2) 
   {
-    Serial.print("h");
+    Serial.print("h ");
     return;
   }
   if (Air530.hdop.hdop() <= 0)
   {
-    Serial.print("h");
+    Serial.print("h ");
     return;
   }
   uint32_t currentAge = Air530.location.age();
@@ -650,17 +736,8 @@ void loop()
     // GPS doesn't have a new 'fix'
     Serial.print("a");
     Serial.print(currentAge);
+    Serial.print(" ");
     return;
-  }
-
-  if (Air530.time.isValid())
-  {
-    setTime(Air530.time.hour(),
-            Air530.time.minute(),
-            Air530.time.second(),
-            Air530.date.day(),
-            Air530.date.month(),
-            Air530.date.year());
   }
 
   lastGpsFixTime = now();
@@ -682,7 +759,7 @@ void loop()
     if (minute(diff) < 30 && lastLoRaWanHeartbeat != 0)
     {
       // Serial.println("Not moved much and have Ack'd recently, skip");
-      Serial.print(".");
+      Serial.print(". ");
       return;
     }
     else
@@ -766,6 +843,27 @@ void downLinkDataHandle(McpsIndication_t *mcpsIndication)
   Serial.println();
 }
 
+/*
+http://community.heltec.cn/t/solved-cubecell-ab01-and-lorawan-frame-counter-is-not-incrementing-after-few-days-of-running-time/2979/39?u=bigwave
+.platformio\packages\framework-arduinoasrmicro650x\libraries\LoRaWanMinimal\src\LoRaWanMinimal_APP.cpp
+
+extern void myLoRaWanFCNCheck(bool ackReceived, uint8_t rssi);
+
+/*!
+ * \brief   MCPS-Indication event function
+ *
+ * \param   [IN] mcpsIndication - Pointer to the indication structure,
+ *               containing indication attributes.
+ *
+static void McpsIndication( McpsIndication_t *mcpsIndication )
+{
+	if( mcpsIndication->Status != LORAMAC_EVENT_INFO_STATUS_OK )
+	{
+		return;
+	}
+	printf( "Downlink/ACK received: rssi = %d, snr = %d, datarate = %d\r\n", mcpsIndication->Rssi, (int)mcpsIndication->Snr,(int)mcpsIndication->RxDatarate);
+  myLoRaWanFCNCheck( mcpsIndication->AckReceived, mcpsIndication->Rssi);
+*/
 void myLoRaWanFCNCheck(bool ackReceived, uint8_t rssi)
 {
   Serial.println("ACK RECEIVED");
