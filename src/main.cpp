@@ -386,7 +386,6 @@ void turnOnDisplay()
 
 static void lowPowerSleep(uint32_t sleeptime)
 {
-  Air530.end();
   attachInterrupt(INT_GPIO, wakeUp, RISING);
   display.clear();
   display.display();
@@ -597,7 +596,7 @@ boolean CheckVoltage()
   Serial.printf("%d.%dV ", (int)batteryVoltage, fracPart(batteryVoltage, 2));
   Serial.print(ESC_FG_DEFAULT);
 
-  if (batteryVoltage < 3)
+  if (batteryVoltage < 2.85)
   {
     char str[30];
     int index = sprintf(str, "%d.%dV", (int)batteryVoltage, fracPart(batteryVoltage, 2));
@@ -624,10 +623,9 @@ void setup()
 
   turnOnDisplay();
   CheckVoltage();
-	pinMode(GPIO14,OUTPUT);
-	digitalWrite(GPIO14, HIGH);
+  pinMode(GPIO14, OUTPUT);
+  digitalWrite(GPIO14, HIGH);
 }
-
 
 void loop()
 {
@@ -651,9 +649,10 @@ void loop()
     display.drawString(0, 0, "GPS initing...");
     display.display();
   }
-int gpsState =digitalRead(GPIO14);
-// Serial.print("GPS pin state :");
-// Serial.println(gpsState);
+
+  int gpsState = digitalRead(GPIO14);
+  // Serial.print("GPS pin state :");
+  // Serial.println(gpsState);
   if (gpsState == PINLEVEL::HIGH)
   {
 
@@ -719,7 +718,7 @@ int gpsState =digitalRead(GPIO14);
     return;
   }
 
-  if (Air530.hdop.hdop() > 2) 
+  if (Air530.hdop.hdop() > 1)
   {
     Serial.print("h ");
     return;
@@ -788,6 +787,8 @@ int gpsState =digitalRead(GPIO14);
   newData.satellites = Air530.satellites.value();
   newData.hdop = Air530.hdop.hdop();
   lastGpsFix = Air530.location;
+
+  Air530.end();
 
   newData.batteryVoltage = getBatteryVoltage();
 
