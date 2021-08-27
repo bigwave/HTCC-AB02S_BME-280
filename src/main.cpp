@@ -645,9 +645,6 @@ void loop()
     delay(1000);
     display.clear();
     display.display();
-    display.setFont(ArialMT_Plain_10);
-    display.drawString(0, 0, "GPS initing...");
-    display.display();
   }
 
   int gpsState = digitalRead(GPIO14);
@@ -655,6 +652,9 @@ void loop()
   // Serial.println(gpsState);
   if (gpsState == PINLEVEL::HIGH)
   {
+    display.setFont(ArialMT_Plain_10);
+    display.drawString(0, 0, "GPS initing...");
+    display.display();
 
     Air530.begin();
     Air530.setmode(MODE_GPS_GLONASS);
@@ -718,7 +718,7 @@ void loop()
     return;
   }
 
-  if (Air530.hdop.hdop() > 1)
+  if (Air530.hdop.hdop() > 1.5)
   {
     Serial.print("h ");
     return;
