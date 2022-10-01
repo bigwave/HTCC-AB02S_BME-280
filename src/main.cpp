@@ -161,15 +161,18 @@ void displayVersionAndName()
   display.drawString(0, 36, BUILD_TIMESTAMP);
   display.display();
 
+  pixels.begin(); // INITIALIZE RGB strip object (REQUIRED)
+  pixels.clear(); // Set all pixel colors to 'off'
+  pixels.show();  // Send the updated pixel colors to the hardware.
   pixels.setPixelColor(0, pixels.Color(1, 0, 0));
   pixels.show(); // Send the updated pixel colors to the hardware.
-  delay(500);
+  delay(100);
   pixels.setPixelColor(0, pixels.Color(0, 1, 0));
   pixels.show(); // Send the updated pixel colors to the hardware.
-  delay(500);
+  delay(100);
   pixels.setPixelColor(0, pixels.Color(0, 0, 1));
   pixels.show(); // Send the updated pixel colors to the hardware.
-  delay(500);
+  delay(100);
 
   pixels.clear(); // Set all pixel colors to 'off'
   pixels.show();  // Send the updated pixel colors to the hardware.
@@ -384,19 +387,20 @@ void VextOFF(void) // Vext default OFF
 }
 void turnOnDisplay()
 {
-  VextON(); // oled power on;
-  delay(500);
-  display.init();
-  display.setI2cAutoInit(true);
-  display.clear();
-  display.display();
-  display.setTextAlignment(TEXT_ALIGN_LEFT);
-  // display.setBrightness(64);
-  pixels.begin(); // INITIALIZE RGB strip object (REQUIRED)
-  pixels.clear(); // Set all pixel colors to 'off'
-  pixels.show();  // Send the updated pixel colors to the hardware.
-  displayVersionAndName();
-  display.setFont(ArialMT_Plain_10);
+  int vextState = digitalRead(Vext);
+  Serial.print("Vext pin state :");
+  Serial.println(vextState);
+  /// Check if the display is already on
+  if (vextState == PINLEVEL::HIGH)
+  {
+    VextON(); // oled power on;
+    delay(500);
+    display.init();
+    display.setI2cAutoInit(true);
+    display.clear();
+    display.display();
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+  }
 }
 
 static void lowPowerSleep(uint32_t sleeptime)
@@ -638,6 +642,9 @@ void setup()
   pinMode(INT_GPIO, INPUT);
 
   turnOnDisplay();
+  displayVersionAndName();
+  display.setFont(ArialMT_Plain_10);
+
   CheckVoltage();
   pinMode(GPIO14, OUTPUT);
   digitalWrite(GPIO14, HIGH);
@@ -645,6 +652,7 @@ void setup()
 
 void loop()
 {
+  turnOnDisplay();
   if (!CheckVoltage())
   {
     return;
@@ -832,7 +840,6 @@ void loop()
     }
     Wire.end();
   }
-  VextOFF();
   Serial.print("Temperature: ");
   Serial.print(newData.temperature);
   Serial.print(", Humidity: ");
