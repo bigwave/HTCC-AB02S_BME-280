@@ -1,10 +1,10 @@
 /**
  * This is an example of joining, sending and receiving data via LoRaWAN using a more minimal interface.
- * 
+ *
  * The example is configured for OTAA, set your keys into the variables below.
- * 
+ *
  * The example will upload a counter value periodically, and will print any downlink messages.
- * 
+ *
  * David Brodrick.
  */
 #include "LoRaWanMinimal_APP.h"
@@ -21,6 +21,8 @@
 #include "chipIdNameLookup.cpp"
 #include "version.h"
 #include "font.h"
+
+#define DEBUG_DISPLAY(...) Serial.printf(__VA_ARGS__)
 
 #define ANSI_ESCAPE_SEQUENCE(c) "\33[" c
 #define ESC_RESET ANSI_ESCAPE_SEQUENCE("0m")
@@ -79,14 +81,14 @@ const uint8_t SATELLITE_IMAGE[] PROGMEM = {
 
 CubeCell_NeoPixel pixels(1, RGB, NEO_GRB + NEO_KHZ800);
 
-//SSD1306Wire display(0x3c, 500000, I2C_NUM_0, GEOMETRY_128_64, GPIO10); // addr , freq , i2c group , resolution , rst
+// SSD1306Wire display(0x3c, 500000, I2C_NUM_0, GEOMETRY_128_64, GPIO10); // addr , freq , i2c group , resolution , rst
 SSD1306Wire display(0x3c, 500000, SDA, SCL, GEOMETRY_128_64, GPIO10); // addr , freq , SDA, SCL, resolution , rst
 Air530Class Air530;
 
-//when gps waked, if in GPS_UPDATE_TIMEOUT, gps not fixed then into low power mode
+// when gps waked, if in GPS_UPDATE_TIMEOUT, gps not fixed then into low power mode
 #define GPS_UPDATE_TIMEOUT 120000
 
-//once fixed, GPS_CONTINUE_TIME later into low power mode
+// once fixed, GPS_CONTINUE_TIME later into low power mode
 #define GPS_CONTINUE_TIME 10000
 /*
  * set LoraWan_RGB to Active,the RGB active in loraWan
@@ -97,7 +99,7 @@ Air530Class Air530;
  * RGB green means received done;
  */
 #define INT_GPIO USER_KEY
-//Set these OTAA parameters to match your app/node in TTN
+// Set these OTAA parameters to match your app/node in TTN
 /* OTAA para*/
 uint8_t appEui[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 uint8_t appKey[] = {0xD2, 0x05, 0x9E, 0xDD, 0x99, 0x16, 0x92, 0xB9, 0x4D, 0x82, 0x62, 0xC1, 0xC9, 0x28, 0xA0, 0xC9};
@@ -137,7 +139,7 @@ static uint16 greenLed = 0;
 static uint16 blueLed = 0;
 
 uint8_t appDataSize = 0;
-//uint8_t appData[LORAWAN_APP_DATA_MAX_SIZE];
+// uint8_t appData[LORAWAN_APP_DATA_MAX_SIZE];
 
 enum eDeviceState
 {
@@ -175,9 +177,9 @@ void displayVersionAndName()
   display.clear();
 }
 ///////////////////////////////////////////////////
-//Some utilities for going into low power mode
+// Some utilities for going into low power mode
 TimerEvent_t sleepTimer;
-//Records whether our sleep/low power timer expired
+// Records whether our sleep/low power timer expired
 bool sleepTimerExpired;
 static void wakeUp()
 {
@@ -268,6 +270,19 @@ void displayInfo()
   Serial.println(Air530.speed.kmph());
   Serial.println();
 }
+uint16_t getBatteryVoltageADC2()
+{
+  float temp = 0;
+  uint16_t volt;
+  uint8_t pin;
+  pin = ADC2;
+
+  for (int i = 0; i < 50; i++) // read 50 times and get average
+    temp += analogReadmV(pin);
+  volt = temp / 50;
+  volt = volt * 2;
+  return volt;
+}
 
 void displayOled(boolean loraTransmitting)
 {
@@ -283,7 +298,7 @@ void displayOled(boolean loraTransmitting)
 
   // Serial.print ("Raw voltage : ");
   // Serial.println(getBatteryVoltage());
-  double batteryVoltage = getBatteryVoltage() / 1000.0;
+  double batteryVoltage = getBatteryVoltageADC2() / 1000.0;
   // Serial.print ("double voltage : ");
   // Serial.println(batteryVoltage);
   // Serial.print ("fracPart(batteryVoltage, 1)  : ");
@@ -330,7 +345,7 @@ void displayOled(boolean loraTransmitting)
     double distance = TinyGPSPlus::distanceBetween(lastGpsFix.lat(), lastGpsFix.lng(), Air530.location.lat(), Air530.location.lng());
     index = sprintf(str, "%dm", (int)distance);
     str[index] = 0;
-    //Serial.println(str);
+    // Serial.println(str);
     display.drawString(116, 20, str);
     display.drawXbm(display.getWidth() - delta_width, 22, delta_width, delta_height, delta_bits);
   }
@@ -362,7 +377,7 @@ void VextON(void)
   pinMode(Vext, OUTPUT);
   digitalWrite(Vext, LOW);
 }
-void VextOFF(void) //Vext default OFF
+void VextOFF(void) // Vext default OFF
 {
   pinMode(Vext, OUTPUT);
   digitalWrite(Vext, HIGH);
@@ -376,7 +391,7 @@ void turnOnDisplay()
   display.clear();
   display.display();
   display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.setBrightness(64);
+  // display.setBrightness(64);
   pixels.begin(); // INITIALIZE RGB strip object (REQUIRED)
   pixels.clear(); // Set all pixel colors to 'off'
   pixels.show();  // Send the updated pixel colors to the hardware.
@@ -392,21 +407,21 @@ static void lowPowerSleep(uint32_t sleeptime)
   display.stop();
   pixels.clear();
   pixels.show();
-  VextOFF(); //oled power off
+  VextOFF(); // oled power off
   // displayDateTime(false);
   // displayInfo();
   sleepTimerExpired = false;
   TimerInit(&sleepTimer, &wakeUp);
   TimerSetValue(&sleepTimer, sleeptime);
   TimerStart(&sleepTimer);
-  //Low power handler also gets interrupted by other timers
-  //So wait until our timer had expired
+  // Low power handler also gets interrupted by other timers
+  // So wait until our timer had expired
   Serial.println();
   Serial.flush();
   Serial.end();
   while (!sleepTimerExpired)
   {
-    //Serial.print("-");
+    // Serial.print("-");
     lowPowerHandler();
   }
   TimerStop(&sleepTimer);
@@ -454,13 +469,13 @@ void join()
   turnOnDisplay();
   if (ACTIVE_REGION == LORAMAC_REGION_AU915)
   {
-    //TTN uses sub-band 2 in AU915
+    // TTN uses sub-band 2 in AU915
     LoRaWAN.setSubBand2();
   }
 
   LoRaWAN.begin(LORAWAN_CLASS, ACTIVE_REGION);
 
-  //Enable ADR
+  // Enable ADR
   LoRaWAN.setAdaptiveDR(true);
   display.clear();
   display.display();
@@ -474,8 +489,8 @@ void join()
     LoRaWAN.joinOTAA(appEui, appKey);
     if (!LoRaWAN.isJoined())
     {
-      //In this example we just loop until we're joined, but you could
-      //also go and start doing other things and try again later
+      // In this example we just loop until we're joined, but you could
+      // also go and start doing other things and try again later
       display.clear();
       display.display();
 
@@ -497,7 +512,7 @@ void join()
   }
 }
 
-//A 'do nothing' function for timer callbacks
+// A 'do nothing' function for timer callbacks
 static void wakeUpDummy() {}
 
 void displayRgb()
@@ -526,7 +541,7 @@ void displayRgb()
   pixels.begin(); // INITIALIZE RGB strip object (REQUIRED)
 
   pixels.setPixelColor(0, pixels.Color(redLed, 0, blueLed));
-  //pixels.setPixelColor(0, pixels.Color(redLed, greenLed, blueLed));
+  // pixels.setPixelColor(0, pixels.Color(redLed, greenLed, blueLed));
   pixels.show(); // Send the updated pixel colors to the hardware.
 }
 
@@ -583,14 +598,14 @@ void transmitRecord()
   if (lorawanClass == CLASS_A)
   {
     Serial.println("lowPowerSleep");
-    //lowPowerSleep(30000);
-    lowPowerSleep(1800000); //30 minutes
+    // lowPowerSleep(30000);
+    lowPowerSleep(1800000); // 30 minutes
   }
 }
-
 boolean CheckVoltage()
 {
-  double batteryVoltage = getBatteryVoltage() / 1000.0;
+
+  double batteryVoltage = getBatteryVoltageADC2() / 1000.0;
   Serial.print(ESC_FG_RED);
   Serial.print("\r");
   Serial.printf("%d.%dV ", (int)batteryVoltage, fracPart(batteryVoltage, 2));
@@ -614,6 +629,7 @@ boolean CheckVoltage()
   }
   return true;
 }
+
 ///////////////////////////////////////////////////
 void setup()
 {
@@ -790,7 +806,7 @@ void loop()
 
   Air530.end();
 
-  newData.batteryVoltage = getBatteryVoltage();
+  newData.batteryVoltage = getBatteryVoltageADC2();
 
   newData.transmissionLatitude = newData.latitude;
   newData.transmissionLongitude = newData.longitude;
@@ -833,7 +849,7 @@ void loop()
 }
 
 ///////////////////////////////////////////////////
-//Example of handling downlink data
+// Example of handling downlink data
 void downLinkDataHandle(McpsIndication_t *mcpsIndication)
 {
   Serial.printf("Received downlink: %s, RXSIZE %d, PORT %d, DATA: ", mcpsIndication->RxSlot ? "RXWIN2" : "RXWIN1", mcpsIndication->BufferSize, mcpsIndication->Port);
@@ -858,11 +874,11 @@ extern void myLoRaWanFCNCheck(bool ackReceived, uint8_t rssi);
  *
 static void McpsIndication( McpsIndication_t *mcpsIndication )
 {
-	if( mcpsIndication->Status != LORAMAC_EVENT_INFO_STATUS_OK )
-	{
-		return;
-	}
-	printf( "Downlink/ACK received: rssi = %d, snr = %d, datarate = %d\r\n", mcpsIndication->Rssi, (int)mcpsIndication->Snr,(int)mcpsIndication->RxDatarate);
+  if( mcpsIndication->Status != LORAMAC_EVENT_INFO_STATUS_OK )
+  {
+    return;
+  }
+  printf( "Downlink/ACK received: rssi = %d, snr = %d, datarate = %d\r\n", mcpsIndication->Rssi, (int)mcpsIndication->Snr,(int)mcpsIndication->RxDatarate);
   myLoRaWanFCNCheck( mcpsIndication->AckReceived, mcpsIndication->Rssi);
 */
 void myLoRaWanFCNCheck(bool ackReceived, uint8_t rssi)
